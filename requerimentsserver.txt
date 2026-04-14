@@ -1,5 +1,5 @@
 # Comunicación Bluetooth
-pybluez2==0.4.0
+bleak==0.22.2
 
 # Inteligencia Artificial y Tensores
 tensorflow==2.15.0
