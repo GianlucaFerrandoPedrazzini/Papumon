@@ -1,54 +1,40 @@
-import bluetooth
+import asyncio
 import json
-import os
 import io
+import os
 import numpy as np
 import tensorflow as tf
 from PIL import Image
 from sklearn.metrics.pairwise import cosine_similarity
+from bleak import BleakPeripheral
 
-# Cargar modelo para extraer características (sin la capa de clasificación final)
+# --- LÓGICA DE IA (Igual a la anterior) ---
 base_model = tf.keras.applications.MobileNetV2(weights="imagenet", include_top=False, pooling="avg")
-
-# Diccionario para guardar las "huellas digitales" de tus Pokémon
 pokemon_database = {}
 
 def load_local_pokemons():
     folder = "pokemons"
-    if not os.path.exists(folder):
-        os.makedirs(folder)
-        print(f"Alerta: Carpeta '{folder}' creada. Agregá imágenes ahí.")
-        return
-
-    print("Cargando base de datos de Pokémon...")
+    if not os.path.exists(folder): os.makedirs(folder)
     for file in os.listdir(folder):
         if file.endswith((".png", ".jpg", ".jpeg")):
             img_path = os.path.join(folder, file)
             img = Image.open(img_path).convert('RGB').resize((224, 224))
             img_array = tf.keras.applications.mobilenet_v2.preprocess_input(np.array(img))
             feature_vector = base_model.predict(np.expand_dims(img_array, axis=0))
-            
-            name = os.path.splitext(file)[0].capitalize()
-            pokemon_database[name] = feature_vector
-    print(f"Base de datos lista: {list(pokemon_database.keys())}")
+            pokemon_database[os.path.splitext(file)[0].capitalize()] = feature_vector
+    print(f"Base de datos cargada: {list(pokemon_database.keys())}")
 
 def find_most_similar(image_bytes):
-    # Procesar imagen recibida
     img = Image.open(io.BytesIO(image_bytes)).convert('RGB').resize((224, 224))
     img_array = tf.keras.applications.mobilenet_v2.preprocess_input(np.array(img))
     target_vector = base_model.predict(np.expand_dims(img_array, axis=0))
-
-    best_match = "Desconocido"
-    highest_score = 0
-
-    # Comparar contra toda la base de datos
+    
+    best_match, highest_score = "Desconocido", 0
     for name, feat_vector in pokemon_database.items():
         score = cosine_similarity(target_vector, feat_vector)[0][0]
         if score > highest_score:
-            highest_score = score
-            best_match = name
+            highest_score, best_match = score, name
 
-    # Lógica de stats (Similitud de 0.0 a 1.0)
     return {
         "name": best_match,
         "hp": int(highest_score * 200),
@@ -56,33 +42,49 @@ def find_most_similar(image_bytes):
         "similarity": f"{highest_score:.2%}"
     }
 
-def start_server():
-    load_local_pokemons()
-    server_sock = bluetooth.BluetoothSocket(bluetooth.RFCOMM)
-    server_sock.bind(("", bluetooth.PORT_ANY))
-    server_sock.listen(1)
-    
-    uuid = "00001101-0000-1000-8000-00805F9B34FB"
-    bluetooth.advertise_service(server_sock, "PokeScanner", service_id=uuid)
-    print("Servidor Bluetooth esperando fotos...")
+# --- CONFIGURACIÓN BLEAK (SERVIDOR) ---
+# UUIDs únicos para identificar tu servicio de Pokémon
+SERVICE_UUID = "12345678-1234-5678-1234-567812345678"
+CHAR_UUID = "87654321-4321-4321-4321-876543210987"
 
-    while True:
-        client_sock, client_info = server_sock.accept()
-        data = b""
-        try:
-            while True:
-                chunk = client_sock.recv(4096)
-                if not chunk: break
-                data += chunk
+class PokemonPeripheral:
+    def __init__(self):
+        self.received_data = bytearray()
+
+    def on_write(self, characteristic, data):
+        # El cliente envía la imagen en trozos
+        self.received_data.extend(data)
+        print(f"Recibiendo datos... ({len(self.received_data)} bytes)")
+
+    async def run(self):
+        load_local_pokemons()
+        
+        # En Bleak 0.22.2 se usa el backend del sistema para anunciar
+        async with BleakPeripheral() as server:
+            await server.add_service(SERVICE_UUID)
+            await server.add_characteristic(
+                SERVICE_UUID, 
+                CHAR_UUID, 
+                ["read", "write", "notify"], 
+                self.on_write
+            )
             
-            if data:
-                result = find_most_similar(data)
-                client_sock.send(json.dumps(result))
-        except Exception as e:
-            print(f"Error procesando: {e}")
-        finally:
-            client_sock.close()
+            print(f"Servidor BLE activo. Buscando por UUID: {SERVICE_UUID}")
+            
+            while True:
+                # Si terminamos de recibir (puedes implementar un timeout o flag)
+                if len(self.received_data) > 0:
+                    # Esperamos un momento a que termine de llegar todo
+                    await asyncio.sleep(2) 
+                    print("Procesando imagen...")
+                    result = find_most_similar(bytes(self.received_data))
+                    
+                    # Limpiamos para la próxima foto
+                    self.received_data = bytearray()
+                    print(f"Resultado: {result}")
+                    
+                await asyncio.sleep(1)
 
 if __name__ == "__main__":
-    start_server()
-
+    peripheral = PokemonPeripheral()
+    asyncio.run(peripheral.run())
