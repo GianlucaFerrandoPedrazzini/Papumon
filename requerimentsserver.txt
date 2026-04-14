@@ -1,0 +1,12 @@
+# Comunicación Bluetooth
+pybluez2==0.4.0
+
+# Inteligencia Artificial y Tensores
+tensorflow==2.15.0
+
+# Procesamiento de Imágenes
+Pillow==10.2.0
+numpy==1.26.4
+
+# Comparación Matemática
+scikit-learn==1.4.1.post1
