@@ -1,12 +1,14 @@
-# Comunicación Bluetooth
-bleak==0.22.2
+# Bluetooth Low Energy Server
+bless==0.3.0
 
-# Inteligencia Artificial y Tensores
+# Inteligencia Artificial y Redes Neuronales
 tensorflow==2.15.0
 
-# Procesamiento de Imágenes
+# Procesamiento de imágenes y visualización
 Pillow==10.2.0
+
+# Operaciones matemáticas y matrices
 numpy==1.26.4
 
-# Comparación Matemática
+# Cálculo de similitud (IA)
 scikit-learn==1.4.1.post1
